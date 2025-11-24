@@ -12,7 +12,6 @@ try:
 except ImportError:
     YARA_AVAILABLE = False
     print("Warning: YARA not available. Installing without YARA support.")
-from datetime import datetime
 
 class Scanner:
     def __init__(self):
