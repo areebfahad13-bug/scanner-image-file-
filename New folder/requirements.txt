@@ -1,3 +1,44 @@
-pyqt5
-python-clamav
-python-yara
+# EDR System Requirements
+# Three-Layered Triage Architecture
+
+# Core GUI Framework
+PyQt5>=5.15.9
+
+# Machine Learning
+scikit-learn>=1.3.0
+numpy>=1.24.0
+
+# YARA Rules Engine
+yara-python>=4.3.1
+
+# ClamAV Interface (optional but recommended)
+pyclamd>=0.4.0
+
+# Fuzzy Hashing for Similarity Detection
+ssdeep>=3.4
+
+# HTTP Requests for Threat Intelligence APIs
+requests>=2.31.0
+
+# Database
+# SQLite3 is included in Python standard library
+
+# Additional Security Libraries
+cryptography>=41.0.0
+
+# Logging and Utilities
+colorlog>=6.7.0
+
+# Optional: Alternative YARA wrapper
+# plyara>=2.1.1
+
+# Development Dependencies (optional)
+# pytest>=7.4.0
+# black>=23.7.0
+# flake8>=6.1.0
+
+# Note: On Windows, you may need to install ClamAV separately
+# Download from: https://www.clamav.net/downloads
+
+# Note: For ssdeep on Windows, you may need Visual C++ build tools
+# or use pre-built wheels: pip install ssdeep-windows-wheels
