@@ -92,20 +92,21 @@ class ThreatIntelligence:
         
         conn.commit()
         conn.close()
-        logger.info(f\"Threat intelligence database initialized at {self.db_path}\")
+        logger.info(f"Threat intelligence database initialized at {self.db_path}")
     
     def _check_rate_limit(self, source: str):
-        \"\"\"Enforce rate limiting for API requests.\"\"\"\n        if source in self.last_request_time:
+        """Enforce rate limiting for API requests."""
+        if source in self.last_request_time:
             elapsed = time.time() - self.last_request_time[source]
             if elapsed < self.rate_limit_delay:
                 wait_time = self.rate_limit_delay - elapsed
-                logger.info(f\"Rate limiting {source}: waiting {wait_time:.1f}s\")
+                logger.info(f"Rate limiting {source}: waiting {wait_time:.1f}s")
                 time.sleep(wait_time)
         
         self.last_request_time[source] = time.time()
     
     def query_virustotal(self, file_hash: str) -> Dict:
-        \"\"\"
+        """
         Query VirusTotal API v3 for file reputation.
         
         Args:
@@ -113,25 +114,25 @@ class ThreatIntelligence:
         
         Returns:
             VirusTotal analysis results
-        \"\"\"
+        """
         if not REQUESTS_AVAILABLE:
             return {'error': 'requests library not available'}
         
         if not self.vt_api_key:
-            logger.warning(\"No VirusTotal API key configured\")
+            logger.warning("No VirusTotal API key configured")
             return {'error': 'No API key', 'scanned': False}
         
         # Check cache
         cached = self._get_cached_result('vt', file_hash)
         if cached:
-            logger.info(f\"VirusTotal cache hit for {file_hash}\")
+            logger.info(f"VirusTotal cache hit for {file_hash}")
             return cached
         
         # Rate limiting
         self._check_rate_limit('virustotal')
         
         try:
-            url = f\"https://www.virustotal.com/api/v3/files/{file_hash}\"
+            url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
             headers = {
                 'x-apikey': self.vt_api_key,
                 'Accept': 'application/json'
@@ -178,7 +179,7 @@ class ThreatIntelligence:
                 # Cache result
                 self._cache_result('vt', file_hash, result)
                 
-                logger.info(f\"VirusTotal: {result['positives']}/{result['total']} for {file_hash}\")
+                logger.info(f"VirusTotal: {result['positives']}/{result['total']} for {file_hash}")
                 return result
             
             elif response.status_code == 404:
@@ -192,7 +193,7 @@ class ThreatIntelligence:
                 return result
             
             elif response.status_code == 429:
-                logger.warning(\"VirusTotal rate limit exceeded\")
+                logger.warning("VirusTotal rate limit exceeded")
                 return {
                     'error': 'Rate limit exceeded',
                     'retry_after': response.headers.get('Retry-After', 60),
@@ -200,17 +201,17 @@ class ThreatIntelligence:
                 }
             
             else:
-                logger.error(f\"VirusTotal error: {response.status_code}\")
+                logger.error(f"VirusTotal error: {response.status_code}")
                 return {'error': f'API error {response.status_code}', 'scanned': False}
         
         except requests.exceptions.Timeout:
             return {'error': 'Request timeout', 'scanned': False}
         except Exception as e:
-            logger.error(f\"VirusTotal query failed: {e}\")
+            logger.error(f"VirusTotal query failed: {e}")
             return {'error': str(e), 'scanned': False}
     
     def query_hybrid_analysis(self, file_hash: str) -> Dict:
-        \"\"\"
+        """
         Query Hybrid Analysis API for sandbox results.
         
         Args:
@@ -218,7 +219,7 @@ class ThreatIntelligence:
         
         Returns:
             Hybrid Analysis results
-        \"\"\"
+        """
         if not REQUESTS_AVAILABLE or not self.ha_api_key:
             return {'error': 'Not available', 'scanned': False}
         
@@ -231,7 +232,7 @@ class ThreatIntelligence:
         self._check_rate_limit('hybrid_analysis')
         
         try:
-            url = f\"https://www.hybrid-analysis.com/api/v2/search/hash\"
+            url = f"https://www.hybrid-analysis.com/api/v2/search/hash"
             headers = {
                 'api-key': self.ha_api_key,
                 'User-Agent': 'EDR Scanner',
@@ -271,18 +272,18 @@ class ThreatIntelligence:
                 
                 self._cache_result('ha', file_hash, result)
                 
-                logger.info(f\"Hybrid Analysis: threat_score={result['threat_score']} for {file_hash}\")
+                logger.info(f"Hybrid Analysis: threat_score={result['threat_score']} for {file_hash}")
                 return result
             
             else:
                 return {'error': f'API error {response.status_code}', 'scanned': False}
         
         except Exception as e:
-            logger.error(f\"Hybrid Analysis query failed: {e}\")
+            logger.error(f"Hybrid Analysis query failed: {e}")
             return {'error': str(e), 'scanned': False}
     
     def query_all_sources(self, file_hash: str) -> Dict:
-        \"\"\"
+        """
         Query all available threat intelligence sources.
         
         Args:
@@ -290,7 +291,7 @@ class ThreatIntelligence:
         
         Returns:
             Aggregated results from all sources
-        \"\"\"
+        """
         results = {
             'hash': file_hash,
             'sources': {},
@@ -318,7 +319,7 @@ class ThreatIntelligence:
         return results
     
     def _aggregate_results(self, sources: Dict) -> Dict:
-        \"\"\"Aggregate results from multiple threat intelligence sources.\"\"\"
+        """Aggregate results from multiple threat intelligence sources."""
         aggregated = {
             'is_malicious': False,
             'confidence': 0.0,
@@ -341,7 +342,7 @@ class ThreatIntelligence:
                     if detection_rate > 0.3:
                         votes_malicious += 1
                         confidence_scores.append(detection_rate)
-                        aggregated['details'].append(f\"VT: {vt['positives']}/{vt['total']} detections\")
+                        aggregated['details'].append(f"VT: {vt['positives']}/{vt['total']} detections")
         
         # Hybrid Analysis
         if 'hybrid_analysis' in sources:
@@ -352,7 +353,7 @@ class ThreatIntelligence:
                 if threat_score >= 50:
                     votes_malicious += 1
                     confidence_scores.append(threat_score / 100)
-                    aggregated['details'].append(f\"HA: threat score {threat_score}\")
+                    aggregated['details'].append(f"HA: threat score {threat_score}")
         
         # Determine final verdict
         if total_sources > 0:
@@ -373,7 +374,7 @@ class ThreatIntelligence:
         return aggregated
     
     def _determine_threat_label(self, stats: Dict) -> str:
-        \"\"\"Determine threat label from VirusTotal stats.\"\"\"
+        """Determine threat label from VirusTotal stats."""
         malicious = stats.get('malicious', 0)
         suspicious = stats.get('suspicious', 0)
         total = sum(stats.values())
@@ -395,14 +396,14 @@ class ThreatIntelligence:
             return 'uncertain'
     
     def _get_cached_result(self, source: str, file_hash: str) -> Optional[Dict]:
-        \"\"\"Get cached result if still valid.\"\"\"
+        """Get cached result if still valid."""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            table = f\"{source}_cache\"
-            cursor.execute(f\"SELECT * FROM {table} WHERE file_hash = ?\", (file_hash,))
+            table = f"{source}_cache"
+            cursor.execute(f"SELECT * FROM {table} WHERE file_hash = ?", (file_hash,))
             row = cursor.fetchone()
             conn.close()
             
@@ -415,12 +416,12 @@ class ThreatIntelligence:
                     return result
         
         except Exception as e:
-            logger.error(f\"Cache read error: {e}\")
+            logger.error(f"Cache read error: {e}")
         
         return None
     
     def _cache_result(self, source: str, file_hash: str, result: Dict):
-        \"\"\"Cache threat intelligence result.\"\"\"
+        """Cache threat intelligence result."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -448,12 +449,12 @@ class ThreatIntelligence:
             conn.close()
         
         except Exception as e:
-            logger.error(f\"Cache write error: {e}\")
+            logger.error(f"Cache write error: {e}")
     
     def add_threat_indicator(self, indicator: str, indicator_type: str,
                             source: str, threat_level: str, 
                             description: str = ''):
-        \"\"\"Add custom threat indicator to database.\"\"\"
+        """Add custom threat indicator to database."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -467,13 +468,13 @@ class ThreatIntelligence:
             
             conn.commit()
             conn.close()
-            logger.info(f\"Added threat indicator: {indicator}\")
+            logger.info(f"Added threat indicator: {indicator}")
         
         except Exception as e:
-            logger.error(f\"Failed to add threat indicator: {e}\")
+            logger.error(f"Failed to add threat indicator: {e}")
     
     def check_threat_feeds(self, indicator: str, indicator_type: str) -> Optional[Dict]:
-        \"\"\"Check if indicator exists in threat feeds.\"\"\"
+        """Check if indicator exists in threat feeds."""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -491,12 +492,12 @@ class ThreatIntelligence:
                 return dict(row)
         
         except Exception as e:
-            logger.error(f\"Threat feed check error: {e}\")
+            logger.error(f"Threat feed check error: {e}")
         
         return None
     
     def cleanup_old_cache(self, days: int = 7):
-        \"\"\"Remove old cached results.\"\"\"
+        """Remove old cached results."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -511,7 +512,7 @@ class ThreatIntelligence:
             deleted = cursor.rowcount
             conn.close()
             
-            logger.info(f\"Cleaned up {deleted} old cache entries\")
+            logger.info(f"Cleaned up {deleted} old cache entries")
         
         except Exception as e:
-            logger.error(f\"Cache cleanup error: {e}\")
+            logger.error(f"Cache cleanup error: {e}")

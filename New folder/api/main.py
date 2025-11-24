@@ -447,7 +447,7 @@ async def perform_scan(
                     result["is_malicious"] = True
                     result["confidence"] = max(result["confidence"], dl_result.get("confidence", 0))
             except Exception as e:
-                logger.warning(f\"Deep learning analysis skipped: {e}\")
+                logger.warning(f"Deep learning analysis skipped: {e}")
         
         scan_status[scan_id]["progress"] = 80
         
@@ -487,10 +487,10 @@ async def perform_scan(
         
         scan_results[scan_id] = result
         
-        logger.info(f\"Scan {scan_id} completed: malicious={result['is_malicious']}\")
+        logger.info(f"Scan {scan_id} completed: malicious={result['is_malicious']}")
     
     except Exception as e:
-        logger.error(f\"Scan {scan_id} failed: {e}\")
+        logger.error(f"Scan {scan_id} failed: {e}")
         scan_status[scan_id]["status"] = "failed"
         scan_status[scan_id]["error"] = str(e)
 

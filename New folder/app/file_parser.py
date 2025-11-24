@@ -56,7 +56,7 @@ class PDFParser:
         
         Returns:
             Dictionary with analysis results
-        \"\"\"
+        """
         if not PDF_AVAILABLE:
             return {'error': 'pdfminer not available', 'parsed': False}
         
@@ -80,7 +80,7 @@ class PDFParser:
                 text = pdf_extract_text(str(path))
                 result['text_content'] = text[:5000] if text else ''  # First 5000 chars
             except Exception as e:
-                logger.warning(f\"PDF text extraction failed: {e}\")
+                logger.warning(f"PDF text extraction failed: {e}")
             
             # Parse PDF structure
             with open(path, 'rb') as f:
@@ -133,13 +133,13 @@ class PDFParser:
             result['parsed'] = True
             
         except Exception as e:
-            logger.error(f\"PDF parsing failed for {file_path}: {e}\")
+            logger.error(f"PDF parsing failed for {file_path}: {e}")
             result['error'] = str(e)
         
         return result
     
     def _calculate_risk(self, result: Dict) -> float:
-        \"\"\"Calculate risk score based on PDF features.\"\"\"
+        """Calculate risk score based on PDF features."""
         risk = 0.0
         
         if result['javascript_found']:
@@ -160,9 +160,9 @@ class PDFParser:
 
 
 class OfficeParser:
-    \"\"\"
+    """
     Parse Microsoft Office documents (DOCX, XLSX, PPTX) for macros and embedded content.
-    \"\"\"
+    """
     
     def __init__(self):
         self.suspicious_vba_keywords = [
@@ -172,7 +172,7 @@ class OfficeParser:
         ]
     
     def parse(self, file_path: str) -> Dict:
-        \"\"\"
+        """
         Parse Office document for threats.
         
         Args:
@@ -180,7 +180,7 @@ class OfficeParser:
         
         Returns:
             Analysis results
-        \"\"\"
+        """
         result = {
             'parsed': False,
             'file_type': '',
@@ -246,7 +246,7 @@ class OfficeParser:
                                     'suspicious_keywords': suspicious
                                 })
                         except Exception as e:
-                            logger.warning(f\"Could not read macro file {macro_file}: {e}\")
+                            logger.warning(f"Could not read macro file {macro_file}: {e}")
                 
                 # Check for external links
                 rels_files = [f for f in file_list if f.endswith('.rels')]
@@ -254,7 +254,7 @@ class OfficeParser:
                     try:
                         content = zip_file.read(rels_file).decode('utf-8', errors='ignore')
                         # Extract URLs
-                        urls = re.findall(r'Target=\"(https?://[^\"]+)\"', content)
+                        urls = re.findall(r'Target="(https?://[^"]+)"', content)
                         result['external_links'].extend(urls)
                     except Exception:
                         pass
@@ -282,13 +282,13 @@ class OfficeParser:
             result['parsed'] = True
         
         except Exception as e:
-            logger.error(f\"Office document parsing failed for {file_path}: {e}\")
+            logger.error(f"Office document parsing failed for {file_path}: {e}")
             result['error'] = str(e)
         
         return result
     
     def _parse_old_office(self, file_path: str) -> Dict:
-        \"\"\"Parse old Office format (.doc, .xls) using olefile.\"\"\"
+        """Parse old Office format (.doc, .xls) using olefile."""
         result = {
             'format': 'old_office',
             'has_macros': False,
@@ -313,12 +313,12 @@ class OfficeParser:
             ole.close()
         
         except Exception as e:
-            logger.error(f\"Old Office format parsing failed: {e}\")
+            logger.error(f"Old Office format parsing failed: {e}")
         
         return result
     
     def _calculate_risk(self, result: Dict) -> float:
-        \"\"\"Calculate risk score for Office documents.\"\"\"
+        """Calculate risk score for Office documents."""
         risk = 0.0
         
         if result['has_macros']:
@@ -338,9 +338,9 @@ class OfficeParser:
 
 
 class ExtendedFileParser:
-    \"\"\"
+    """
     Main file parser that routes to appropriate specialized parsers.
-    \"\"\"
+    """
     
     def __init__(self):
         self.pdf_parser = PDFParser()
@@ -360,7 +360,7 @@ class ExtendedFileParser:
         }
     
     def parse_file(self, file_path: str) -> Dict:
-        \"\"\"
+        """
         Parse file based on its type.
         
         Args:
@@ -368,7 +368,7 @@ class ExtendedFileParser:
         
         Returns:
             Parsing results
-        \"\"\"
+        """
         result = {
             'file': file_path,
             'supported': False,
@@ -388,16 +388,16 @@ class ExtendedFileParser:
                 result['error'] = f'Unsupported file type: {extension}'
         
         except Exception as e:
-            logger.error(f\"File parsing failed for {file_path}: {e}\")
+            logger.error(f"File parsing failed for {file_path}: {e}")
             result['error'] = str(e)
         
         return result
     
     def get_supported_types(self) -> List[str]:
-        \"\"\"Get list of supported file extensions.\"\"\"
+        """Get list of supported file extensions."""
         return list(self.supported_types.keys())
     
     def is_supported(self, file_path: str) -> bool:
-        \"\"\"Check if file type is supported.\"\"\"
+        """Check if file type is supported."""
         extension = Path(file_path).suffix.lower()
         return extension in self.supported_types
