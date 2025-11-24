@@ -1,12 +1,18 @@
-# EDR System Requirements
-# Three-Layered Triage Architecture
+# EDR System Requirements - Enhanced Version 2.0
+# Three-Layered Triage Architecture with AI/ML Extensions
 
 # Core GUI Framework
 PyQt5>=5.15.9
 
-# Machine Learning
+# Machine Learning & Deep Learning
 scikit-learn>=1.3.0
 numpy>=1.24.0
+tensorflow>=2.14.0
+keras>=2.14.0
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
 
 # YARA Rules Engine
 yara-python>=4.3.1
@@ -26,7 +32,32 @@ requests>=2.31.0
 # Additional Security Libraries
 cryptography>=41.0.0
 
-# Logging and Utilities
+# System Monitoring for Behavioral Analysis
+psutil>=5.9.0
+
+# File Parsing
+pdfminer.six>=20221105
+olefile>=0.46
+python-magic>=0.4.27
+
+# REST API Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+pydantic>=2.0.0
+
+# Explainable AI
+shap>=0.43.0
+lime>=0.2.0.1
+
+# Data Analysis & Visualization
+pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Progress Bars & Utilities
+tqdm>=4.66.0
 colorlog>=6.7.0
 
 # Optional: Alternative YARA wrapper
@@ -42,3 +73,7 @@ colorlog>=6.7.0
 
 # Note: For ssdeep on Windows, you may need Visual C++ build tools
 # or use pre-built wheels: pip install ssdeep-windows-wheels
+
+# Note: TensorFlow installation may vary by platform
+# For GPU support: pip install tensorflow[and-cuda]
+
