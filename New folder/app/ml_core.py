@@ -15,7 +15,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import DBSCAN, KMeans
 
-from security_io import read_in_chunks, validate_and_resolve_path, safe_write_file
+from .security_io import read_in_chunks, validate_and_resolve_path, safe_write_file
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,24 @@ class MLCore:
         Returns:
             Dictionary of feature values
         """
+        return self.extract_features_optimized(file_path, sample_large_files=False)
+    
+    def extract_features_optimized(self, file_path: str, sample_large_files: bool = True, 
+                                   sample_size_mb: int = 10) -> Dict[str, float]:
+        """
+        Extract behavioral features with optional sampling for large files (Phase 3 optimization).
+        
+        For files larger than threshold, sample first/middle/last chunks instead of
+        reading entire file. This dramatically speeds up feature extraction.
+        
+        Args:
+            file_path: Path to the file
+            sample_large_files: If True, sample large files instead of full read
+            sample_size_mb: Size of each sample chunk in MB (default: 10)
+        
+        Returns:
+            Dictionary of feature values
+        """
         try:
             path = validate_and_resolve_path(file_path, must_exist=True)
             
@@ -128,8 +146,32 @@ class MLCore:
             
             # Basic file attributes
             stat = path.stat()
-            features['file_size'] = stat.st_size
-            features['file_size_log'] = math.log10(stat.st_size + 1)
+            file_size = stat.st_size
+            features['file_size'] = file_size
+            features['file_size_log'] = math.log10(file_size + 1)
+            
+            # Determine if we should sample
+            sample_threshold = 100 * 1024 * 1024  # 100MB
+            should_sample = sample_large_files and file_size > sample_threshold
+            
+            if should_sample:
+                logger.debug(f"Sampling large file {file_path} ({file_size / (1024*1024):.1f} MB)")
+                features.update(self._extract_features_sampled(path, sample_size_mb * 1024 * 1024))
+            else:
+                features.update(self._extract_features_full(path))
+            
+            # File extension analysis
+            ext = path.suffix.lower()
+            features['is_executable'] = 1.0 if ext in ['.exe', '.dll', '.sys', '.scr'] else 0.0
+            features['is_script'] = 1.0 if ext in ['.bat', '.cmd', '.ps1', '.vbs', '.js'] else 0.0
+            features['is_office'] = 1.0 if ext in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'] else 0.0
+            features['is_archive'] = 1.0 if ext in ['.zip', '.rar', '.7z', '.tar', '.gz'] else 0.0
+            
+            return features
+        
+        except Exception as e:
+            logger.error(f"Feature extraction failed for {file_path}: {e}")
+            return {}
             
             # Entropy (key indicator of encryption/packing)
             features['entropy'] = self.calculate_entropy(file_path)
@@ -191,6 +233,133 @@ class MLCore:
         except Exception as e:
             logger.error(f"Feature extraction failed for {file_path}: {e}")
             return {}
+    
+    def _extract_features_full(self, path: Path) -> Dict[str, float]:
+        """Extract features from entire file (original method)."""
+        features = {}
+        
+        # Entropy (key indicator of encryption/packing)
+        features['entropy'] = self.calculate_entropy(str(path))
+        
+        # Calculate byte frequency features
+        byte_counts = Counter()
+        null_bytes = 0
+        printable_bytes = 0
+        high_bytes = 0
+        total_bytes = 0
+        
+        for chunk in read_in_chunks(str(path), chunk_size=1024 * 1024):
+            byte_counts.update(chunk)
+            null_bytes += chunk.count(b'\x00')
+            printable_bytes += sum(1 for b in chunk if 32 <= b <= 126)
+            high_bytes += sum(1 for b in chunk if b >= 128)
+            total_bytes += len(chunk)
+        
+        if total_bytes > 0:
+            features['null_byte_ratio'] = null_bytes / total_bytes
+            features['printable_ratio'] = printable_bytes / total_bytes
+            features['high_byte_ratio'] = high_bytes / total_bytes
+        else:
+            features['null_byte_ratio'] = 0.0
+            features['printable_ratio'] = 0.0
+            features['high_byte_ratio'] = 0.0
+        
+        # Unique byte count
+        features['unique_bytes'] = len(byte_counts)
+        features['unique_byte_ratio'] = len(byte_counts) / 256.0
+        
+        return features
+    
+    def _extract_features_sampled(self, path: Path, sample_size: int) -> Dict[str, float]:
+        """Extract features from sampled chunks (Phase 3 optimization)."""
+        features = {}
+        file_size = path.stat().st_size
+        
+        # Sample from beginning, middle, and end
+        samples = []
+        positions = [0, max(0, file_size // 2 - sample_size // 2), max(0, file_size - sample_size)]
+        
+        with open(path, 'rb') as f:
+            for pos in positions:
+                f.seek(pos)
+                chunk = f.read(sample_size)
+                if chunk:
+                    samples.append(chunk)
+        
+        # Combine samples
+        combined = b''.join(samples)
+        total_bytes = len(combined)
+        
+        if total_bytes == 0:
+            return {'entropy': 0.0, 'null_byte_ratio': 0.0, 'printable_ratio': 0.0,
+                   'high_byte_ratio': 0.0, 'unique_bytes': 0, 'unique_byte_ratio': 0.0}
+        
+        # Calculate entropy from samples
+        byte_counts = Counter(combined)
+        entropy = 0.0
+        for count in byte_counts.values():
+            probability = count / total_bytes
+            if probability > 0:
+                entropy -= probability * math.log2(probability)
+        features['entropy'] = entropy
+        
+        # Byte statistics
+        null_bytes = combined.count(b'\x00')
+        printable_bytes = sum(1 for b in combined if 32 <= b <= 126)
+        high_bytes = sum(1 for b in combined if b >= 128)
+        
+        features['null_byte_ratio'] = null_bytes / total_bytes
+        features['printable_ratio'] = printable_bytes / total_bytes
+        features['high_byte_ratio'] = high_bytes / total_bytes
+        features['unique_bytes'] = len(byte_counts)
+        features['unique_byte_ratio'] = len(byte_counts) / 256.0
+        
+        return features
+    
+    def predict_batch(self, feature_matrix: List[Dict[str, float]]) -> List[float]:
+        """Predict anomaly scores for a batch of feature vectors (Phase 3 optimization).
+        
+        Args:
+            feature_matrix: List of feature dictionaries
+        
+        Returns:
+            List of anomaly scores (0.0-1.0)
+        """
+        if not self.is_trained:
+            logger.warning("Model not trained, returning neutral scores")
+            return [0.5] * len(feature_matrix)
+        
+        try:
+            # Convert all features to vectors
+            vectors = []
+            for features in feature_matrix:
+                vec = self.features_to_vector(features)
+                vectors.append(vec[0])  # Remove the extra dimension
+            
+            # Stack into single matrix
+            X = np.vstack(vectors)
+            
+            # Batch prediction
+            predictions = self.model.predict(X)  # -1 for outliers, 1 for inliers
+            decision_scores = self.model.decision_function(X)
+            
+            # Normalize scores to [0, 1] range
+            anomaly_scores = []
+            for pred, score in zip(predictions, decision_scores):
+                if pred == -1:  # Outlier
+                    # Map decision score to 0.5-1.0 range
+                    normalized_score = 0.5 + (1.0 - min(1.0, abs(score) / 2.0)) * 0.5
+                else:  # Inlier
+                    # Map decision score to 0.0-0.5 range
+                    normalized_score = max(0.0, 0.5 - score / 2.0)
+                anomaly_scores.append(normalized_score)
+            
+            logger.debug(f"Batch predicted {len(anomaly_scores)} scores")
+            return anomaly_scores
+        
+        except Exception as e:
+            logger.error(f"Batch prediction failed: {e}")
+            return [0.5] * len(feature_matrix)
     
     def features_to_vector(self, features: Dict[str, float]) -> np.ndarray:
         """

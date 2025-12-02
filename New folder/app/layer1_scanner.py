@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 import logging
 
-from security_io import validate_and_resolve_path
+from .security_io import validate_and_resolve_path
 
 logger = logging.getLogger(__name__)
 

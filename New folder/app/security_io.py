@@ -184,6 +184,44 @@ def file_exists(file_path: str) -> bool:
         return False
 
 
+def compute_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
+    """
+    Compute cryptographic hash of a file using chunked reading.
+    
+    Args:
+        file_path: Path to file
+        algorithm: Hash algorithm ('sha256', 'md5', 'sha1')
+    
+    Returns:
+        Hexadecimal hash string
+    
+    Raises:
+        ValueError: If algorithm is not supported
+        IOError: If file cannot be read
+    """
+    import hashlib
+    
+    supported = {'sha256', 'md5', 'sha1'}
+    if algorithm not in supported:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}. Use one of {supported}")
+    
+    path = validate_and_resolve_path(file_path, must_exist=True)
+    
+    hasher = hashlib.new(algorithm)
+    
+    try:
+        for chunk in read_in_chunks(str(path), chunk_size=1024 * 1024):
+            hasher.update(chunk)
+        
+        result = hasher.hexdigest()
+        logger.debug(f"Computed {algorithm} hash for {path}: {result}")
+        return result
+    
+    except Exception as e:
+        logger.error(f"Failed to compute hash for {path}: {e}")
+        raise IOError(f"Hash computation failed: {path}") from e
+
+
 def create_secure_temp_file(base_dir: str, prefix: str = "edr_temp_") -> Path:
     """
     Create a secure temporary file in the specified directory.

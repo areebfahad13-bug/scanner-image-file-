@@ -13,7 +13,7 @@ from typing import Tuple, List
 import logging
 import hashlib
 
-from security_io import validate_and_resolve_path, safe_write_file
+from .security_io import validate_and_resolve_path, safe_write_file
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     logging.warning("requests not available. Install with: pip install requests")
 
-from security_io import validate_and_resolve_path, safe_write_file
+from .security_io import validate_and_resolve_path, safe_write_file
 
 logger = logging.getLogger(__name__)
 

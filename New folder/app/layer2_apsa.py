@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Tuple, Dict, List, Optional
 import logging
 
-from ml_core import MLCore
-from layer1_scanner import Layer1Scanner
-from security_io import validate_and_resolve_path
+from .ml_core import MLCore
+from .layer1_scanner import Layer1Scanner
+from .security_io import validate_and_resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -67,16 +67,23 @@ class Layer2APSA:
                 details['error'] = 'File too large'
                 return 0.5, details
             
-            # Extract features and predict anomaly score
+            # Extract features and predict anomaly score (Phase 3: use optimized extraction)
+            use_sampling = file_size > 100 * 1024 * 1024  # Sample files > 100MB
             if not self.ml_core.is_trained:
                 logger.warning("ML model not trained, using heuristic scoring")
                 # Fallback to basic heuristic analysis
                 anomaly_score = self._heuristic_analysis(file_path)
                 details['method'] = 'heuristic'
             else:
-                anomaly_score, features = self.ml_core.predict_anomaly_score(file_path)
-                details['features'] = features
-                details['method'] = 'ml_model'
+                # Use optimized feature extraction with sampling for large files
+                features = self.ml_core.extract_features_optimized(file_path, sample_large_files=use_sampling)
+                if features:
+                    anomaly_score = self.ml_core.predict([features])[0]
+                    details['features'] = features
+                    details['method'] = 'ml_model_optimized' if use_sampling else 'ml_model'
+                else:
+                    anomaly_score = 0.5
+                    details['method'] = 'fallback'
             
             details['anomaly_score'] = anomaly_score
             details['is_anomaly'] = anomaly_score >= self.anomaly_threshold

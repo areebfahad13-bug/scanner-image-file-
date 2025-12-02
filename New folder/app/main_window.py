@@ -17,13 +17,75 @@ import time
 import logging
 
 # Import our EDR layers
-from layer1_scanner import Layer1Scanner
-from layer2_apsa import Layer2APSA
-from layer3_apt import Layer3APT
-from remediation_helper import execute_privileged_action
+from .layer1_scanner import Layer1Scanner
+from .layer2_apsa import Layer2APSA
+from .layer3_apt import Layer3APT
+from .remediation_helper import execute_privileged_action
+from .pipeline_controller import PipelineController
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class PipelineWorker(QThread):
+    """
+    Worker thread for parallel pipeline scanning with real-time updates.
+    Uses multiprocessing pipeline for better performance.
+    """
+    progress = pyqtSignal(dict)  # Statistics updates
+    log_message = pyqtSignal(str)  # Log messages
+    finished = pyqtSignal()
+    
+    def __init__(self, directory, yara_rules_dir, db_path, ml_model_path=None, vt_api_key=None):
+        super().__init__()
+        self.directory = directory
+        self.yara_rules_dir = yara_rules_dir
+        self.db_path = db_path
+        self.ml_model_path = ml_model_path
+        self.vt_api_key = vt_api_key
+        self.pipeline = None
+    
+    def progress_callback(self, stats):
+        """Callback for pipeline progress updates."""
+        self.progress.emit(stats)
+    
+    def run(self):
+        """Execute pipeline scan."""
+        try:
+            self.log_message.emit("Initializing parallel pipeline scanner...")
+            
+            # Create pipeline controller with progress callback
+            self.pipeline = PipelineController(
+                num_workers=None,  # Auto-detect CPU cores
+                yara_rules_dir=self.yara_rules_dir,
+                ml_model_path=self.ml_model_path,
+                db_path=self.db_path,
+                vt_api_key=self.vt_api_key,
+                progress_callback=self.progress_callback
+            )
+            
+            self.log_message.emit(f"Starting scan of: {self.directory}")
+            self.log_message.emit(f"Workers: {self.pipeline.num_workers}")
+            
+            # Start the scan
+            self.pipeline.start_scan([self.directory])
+            
+            # Wait for completion (monitor the aggregator thread)
+            while self.pipeline.aggregator_thread and self.pipeline.aggregator_thread.is_alive():
+                time.sleep(1)
+            
+            self.log_message.emit("Pipeline scan complete")
+            self.finished.emit()
+            
+        except Exception as e:
+            logger.error(f"Pipeline worker error: {e}")
+            self.log_message.emit(f"Error: {str(e)}")
+            self.finished.emit()
+    
+    def stop(self):
+        """Stop the pipeline scan."""
+        if self.pipeline:
+            self.pipeline.stop_scan()
 
 
 class ScanWorker(QThread):
@@ -305,7 +367,9 @@ class MainWindow(QMainWindow):
         self.layer3 = Layer3APT(db_path=str(self.db_path))
         
         self.scan_worker = None
+        self.pipeline_worker = None
         self.scan_results = []
+        self.use_pipeline = True  # Toggle for pipeline vs. sequential mode
         
         self.init_ui()
         
@@ -357,6 +421,14 @@ class MainWindow(QMainWindow):
         
         controls_layout.addWidget(self.scan_btn)
         controls_layout.addWidget(self.stop_btn)
+        
+        # Add mode toggle
+        self.mode_label = QLabel("Mode: Parallel Pipeline")
+        mode_font = QFont()
+        mode_font.setBold(True)
+        self.mode_label.setFont(mode_font)
+        controls_layout.addWidget(self.mode_label)
+        
         controls_group.setLayout(controls_layout)
         
         layout.addWidget(controls_group, 0, 0, 1, 3)
@@ -437,6 +509,125 @@ class MainWindow(QMainWindow):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.log_text.clear()
+        self.log_text.append(f"<b>Starting scan of:</b> {directory}\n")
+        
+        if self.use_pipeline:
+            # Use parallel pipeline mode
+            self.log_text.append("<b>Mode:</b> Parallel Pipeline (Multiprocessing)")
+            self.pipeline_worker = PipelineWorker(
+                directory,
+                str(self.yara_rules_dir),
+                str(self.db_path),
+                ml_model_path=None,
+                vt_api_key=os.environ.get('VT_API_KEY')
+            )
+            self.pipeline_worker.progress.connect(self.update_pipeline_progress)
+            self.pipeline_worker.log_message.connect(self.append_log)
+            self.pipeline_worker.finished.connect(self.pipeline_scan_finished)
+            self.pipeline_worker.start()
+        else:
+            # Use sequential mode (original)
+            self.log_text.append("<b>Mode:</b> Sequential (Single-threaded)")
+            self.scan_worker = ScanWorker(
+                directory,
+                self.layer1,
+                self.layer2,
+                self.layer3,
+                str(self.quarantine_dir)
+            )
+            self.scan_worker.progress.connect(self.update_progress)
+            self.scan_worker.finished.connect(self.scan_finished)
+            self.scan_worker.start()
+    
+    def append_log(self, message):
+        """Append a log message."""
+        self.log_text.append(message)
+    
+    def update_pipeline_progress(self, stats):
+        """Update UI with pipeline statistics."""
+        files_scanned = stats.get('files_scanned', 0)
+        threats_found = stats.get('threats_found', 0)
+        avg_score = stats.get('avg_score', 0.0)
+        
+        # Update risk score widget
+        self.risk_score_widget.update_score(avg_score)
+        
+        # Update performance widget (approximate throughput)
+        self.performance_widget.update_metrics(
+            latency=0.0,  # Not calculated in pipeline mode
+            throughput=0.0,
+            files_scanned=files_scanned
+        )
+        
+        # Log progress
+        if files_scanned % 10 == 0 or threats_found > 0:
+            self.log_text.append(
+                f"Progress: {files_scanned} files | "
+                f"{threats_found} threats | "
+                f"Avg score: {avg_score:.1%}"
+            )
+        
+        # Update progress bar (indeterminate since we don't know total)
+        if files_scanned > 0:
+            self.progress_bar.setMaximum(0)  # Indeterminate mode
+    
+    def pipeline_scan_finished(self):
+        """Handle pipeline scan completion."""
+        self.scan_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.progress_bar.hide()
+        
+        self.log_text.append("\n<b>===== Pipeline Scan Complete =====</b>")
+        self.log_text.append("Results saved to database")
+        self.log_text.append(f"Database: {self.db_path}")
+        
+        # Load results from database
+        self.load_results_from_db()
+    
+    def load_results_from_db(self):
+        """Load scan results from the database."""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT path, payload FROM scan_results ORDER BY last_seen DESC LIMIT 100')
+            results = cursor.fetchall()
+            
+            conn.close()
+            
+            if results:
+                self.log_text.append(f"\n<b>Loaded {len(results)} results from database</b>")
+                
+                # Parse and display summary
+                threat_count = 0
+                for path, payload_str in results:
+                    try:
+                        payload = eval(payload_str)  # Convert string back to dict
+                        score = payload.get('final_score', 0)
+                        if score >= 0.6:
+                            threat_count += 1
+                    except:
+                        pass
+                
+                if threat_count > 0:
+                    self.log_text.append(f"<span style='color: red;'>⚠️ Found {threat_count} threats</span>")
+                else:
+                    self.log_text.append("<span style='color: green;'>✅ No threats detected</span>")
+            else:
+                self.log_text.append("No results found in database")
+                
+        except Exception as e:
+            logger.error(f"Failed to load results from DB: {e}")
+            self.log_text.append(f"<span style='color: orange;'>Warning: Could not load results - {e}</span>")
+    
+    def start_scan_original(self, directory):
+        """Original start scan method - kept for reference."""
+        self.scan_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.log_text.clear()
         self.log_text.append(f"<b>Starting three-layered scan of:</b> {directory}\n")
         
         # Create and start worker
@@ -453,7 +644,10 @@ class MainWindow(QMainWindow):
     
     def stop_scan(self):
         """Stop the current scan."""
-        if self.scan_worker:
+        if self.pipeline_worker:
+            self.pipeline_worker.stop()
+            self.log_text.append("<span style='color: orange;'>Pipeline scan stopped by user</span>")
+        elif self.scan_worker:
             self.scan_worker.stop()
             self.log_text.append("<span style='color: orange;'>Scan stopped by user</span>")
     
